@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# warp-toggle-masque - KDE dialog toggle for the official Cloudflare WARP client.
+# This script controls warp-cli/warp-svc only. It does not manage wg-quick profiles.
+
+set -u
+
+TITLE="Cloudflare WARP — MASQUE"
+LOG="${XDG_CACHE_HOME:-$HOME/.cache}/warp-toggle-masque.log"
+mkdir -p "$(dirname "$LOG")"
+: > "$LOG"
+
+show_error() {
+    kdialog --title "$TITLE" --error "$1"
+}
+
+show_info() {
+    kdialog --title "$TITLE" --msgbox "$1"
+}
+
+for cmd in warp-cli kdialog curl grep sed ip systemctl; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        show_error "Falta el comando requerido: $cmd
+
+Instala la dependencia correspondiente y vuelve a intentarlo."
+        exit 1
+    fi
+done
+
+# Do not run the old wg-quick tunnel alongside the official WARP client.
+if ip link show warp >/dev/null 2>&1; then
+    show_error "Detecté una interfaz WireGuard llamada 'warp'.
+
+Para evitar conflictos, desconecta el túnel antiguo de wg-quick antes de usar el cliente oficial Cloudflare WARP/MASQUE.
+
+No se modificó ninguna interfaz."
+    exit 1
+fi
+
+if ! systemctl is-active --quiet warp-svc; then
+    show_error "El servicio warp-svc no está activo.
+
+Puedes iniciarlo con:
+sudo systemctl enable --now warp-svc"
+    exit 1
+fi
+
+get_status() {
+    warp-cli --accept-tos status 2>&1
+}
+
+is_connected_output() {
+    grep -qiE 'Status update:[[:space:]]*Connected([[:space:]]|$)|^Status:[[:space:]]*Connected([[:space:]]|$)' <<< "$1"
+}
+
+is_disconnected_output() {
+    grep -qiE 'Status update:[[:space:]]*Disconnected([[:space:]]|$)|^Status:[[:space:]]*Disconnected([[:space:]]|$)' <<< "$1"
+}
+
+SETTINGS="$(warp-cli --accept-tos settings 2>&1)"
+if grep -qiE 'Unable to connect to the CloudflareWARP daemon|daemon.*not running|No such file or directory' <<< "$SETTINGS"; then
+    show_error "No se pudo consultar la configuración de warp-svc.
+
+$SETTINGS
+
+Registro:
+$LOG"
+    exit 1
+fi
+
+if ! grep -qiE 'WARP tunnel protocol:[[:space:]]*MASQUE([[:space:]]|$)' <<< "$SETTINGS"; then
+    show_error "El cliente oficial no informa que MASQUE esté configurado.
+
+Configura MASQUE con:
+warp-cli --accept-tos tunnel protocol set MASQUE
+
+Configuración detectada:
+$SETTINGS"
+    exit 1
+fi
+
+STATUS="$(get_status 2>>"$LOG")"
+if grep -qiE 'Unable to connect to the CloudflareWARP daemon|daemon.*not running|No such file or directory' <<< "$STATUS"; then
+    show_error "No se pudo comunicar con warp-svc.
+
+Estado:
+$STATUS
+
+Registro:
+$LOG"
+    exit 1
+fi
+
+if is_connected_output "$STATUS"; then
+    if kdialog --title "$TITLE" \
+        --yes-label "Desconectar" \
+        --no-label "Cancelar" \
+        --yesno "Cloudflare WARP está conectado.
+
+$STATUS
+
+¿Desconectar?"; then
+        if ! warp-cli --accept-tos disconnect >"$LOG" 2>&1; then
+            show_error "Falló la solicitud de desconexión.
+
+$(tail -n 15 "$LOG")"
+            exit 1
+        fi
+
+        DISCONNECTED=0
+        for attempt in {1..15}; do
+            STATUS="$(get_status 2>>"$LOG")"
+            if is_disconnected_output "$STATUS"; then
+                DISCONNECTED=1
+                break
+            fi
+            sleep 1
+        done
+
+        if (( DISCONNECTED )); then
+            show_info "Cloudflare WARP se desconectó correctamente."
+        else
+            show_error "No pude confirmar que WARP se haya desconectado.
+
+Estado:
+$STATUS
+
+Registro:
+$LOG"
+        fi
+    fi
+else
+    if kdialog --title "$TITLE" \
+        --yes-label "Conectar" \
+        --no-label "Cancelar" \
+        --yesno "Cloudflare WARP está desconectado.
+
+Protocolo previsto: MASQUE
+
+¿Conectar?"; then
+        if ! warp-cli --accept-tos connect >"$LOG" 2>&1; then
+            show_error "Falló la solicitud de conexión.
+
+$(tail -n 15 "$LOG")"
+            exit 1
+        fi
+
+        CONNECTED=0
+        for attempt in {1..20}; do
+            STATUS="$(get_status 2>>"$LOG")"
+            if is_connected_output "$STATUS"; then
+                CONNECTED=1
+                break
+            fi
+            sleep 1
+        done
+
+        if (( ! CONNECTED )); then
+            show_error "No se confirmó la conexión en 20 segundos.
+
+Estado:
+$STATUS
+
+Registro:
+$LOG"
+            exit 1
+        fi
+
+        TRACE="$(curl -4 -fsS --connect-timeout 5 --max-time 12 \
+            https://www.cloudflare.com/cdn-cgi/trace 2>>"$LOG" || true)"
+        if grep -qx 'warp=on' <<< "$TRACE"; then
+            IP="$(sed -n 's/^ip=//p' <<< "$TRACE" | head -n 1)"
+            show_info "Cloudflare WARP conectado.
+
+Estado: Connected
+Red: saludable
+Prueba externa: warp=on
+IP de salida: ${IP:-no disponible}
+Protocolo configurado en el cliente: MASQUE"
+        else
+            show_error "El cliente indica conexión, pero no pude confirmar warp=on mediante la prueba externa.
+
+WARP se deja conectado para que puedas diagnosticarlo.
+
+Estado:
+$STATUS
+
+Resultado de la prueba:
+${TRACE:-sin respuesta}
+
+Registro:
+$LOG"
+        fi
+    fi
+fi
