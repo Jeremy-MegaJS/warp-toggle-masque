@@ -1,70 +1,69 @@
 # Cloudflare WARP Toggle — MASQUE
 
-Pequeño conmutador gráfico para KDE Plasma en Arch Linux. Usa `kdialog` para conectar o desconectar el **cliente oficial de Cloudflare WARP** mediante `warp-cli`. Está pensado para la configuración MASQUE probada en este equipo.
+A lightweight graphical utility for KDE Plasma on Arch Linux. It provides a desktop dialog to connect or disconnect the official Cloudflare WARP client through `warp-cli`, with service-state checks and a post-connection connectivity verification.
 
-## Qué incluye
+The project focuses on convenient, on-demand VPN control without adding another always-running application.
 
-- Diálogo gráfico para conectar y desconectar el cliente oficial.
-- Comprueba que `warp-svc` esté activo antes de hacer cambios.
-- Comprueba el estado informado por `warp-cli`.
-- Después de conectar, intenta verificar el tráfico real mediante `https://www.cloudflare.com/cdn-cgi/trace` y busca `warp=on`.
-- Guarda su registro en `~/.cache/warp-toggle-masque.log`.
-- Detecta la antigua interfaz WireGuard `warp` y se detiene para evitar ejecutar ambas VPN simultáneamente.
-- Instalador y desinstalador de usuario; no requieren privilegios para instalar el lanzador.
+## Key Features
 
-## Qué no hace
+- KDE dialog for connecting and disconnecting the official WARP client.
+- Checks whether the `warp-svc` daemon is active before making changes.
+- Reads connection status through `warp-cli`.
+- Verifies the resulting connection using Cloudflare's public diagnostic endpoint and checks for `warp=on`.
+- Stores a local diagnostic log at `~/.cache/warp-toggle-masque.log`.
+- Detects a legacy WireGuard interface named `warp` and stops to avoid running both VPN paths simultaneously.
+- Includes user-level installation and uninstallation scripts.
 
-- No instala el cliente Cloudflare WARP ni acepta términos por el usuario.
-- No crea ni administra una cuenta, registro o política de Cloudflare.
-- No modifica DNS, NetworkManager, reglas de firewall ni `/etc/wireguard/warp.conf`.
-- No instala servicios de inicio automático.
-- No garantiza que WARP funcione en redes que bloqueen el protocolo o sus endpoints.
+## Technology
 
-## Requisitos
+- **Bash** — application logic and setup scripts.
+- **Cloudflare WARP CLI** — connection control and status reporting.
+- **MASQUE** — tunnel protocol configured in the official client.
+- **KDialog / KDE Plasma** — graphical interface.
+- **systemd** — daemon-state checks.
+- **curl, ip, grep, sed** — connectivity verification and system inspection.
 
-- Linux con `systemd` y escritorio KDE Plasma (o `kdialog` instalado).
-- Cliente oficial Cloudflare WARP instalado y registrado: `warp-cli`, `warp-svc`.
-- `curl`, `ip`, `grep`, `sed`, `systemctl`, `bash`.
-- Protocolo MASQUE ya configurado en el cliente, por ejemplo:
+## Requirements
 
-  ```bash
-  warp-cli --accept-tos tunnel protocol set MASQUE
-  ```
+- Linux with `systemd` and KDE Plasma (or `kdialog`).
+- The official Cloudflare WARP client installed and registered.
+- `warp-cli`, `warp-svc`, `curl`, `ip`, `grep`, `sed`, and `systemctl`.
+- MASQUE configured in the WARP client.
 
-  El cliente puede solicitar la aceptación de sus términos durante el registro o ciertas operaciones. Lee y acepta los términos directamente antes de continuar.
+This utility does not install WARP, create Cloudflare accounts, register devices, or manage Cloudflare policies.
 
-## Instalación
+## Installation
 
-Desde el directorio del proyecto:
+From the project directory:
 
 ```bash
 chmod +x install.sh uninstall.sh
 ./install.sh
 ```
 
-Esto instala el programa en `~/.local/bin/warp-toggle-masque` y crea un lanzador en `~/.local/share/applications/`. No reemplaza el antiguo `~/.local/bin/warp-toggle`.
+The installer places the program at `~/.local/bin/warp-toggle-masque` and creates a desktop launcher under `~/.local/share/applications/`. It does not replace the legacy `~/.local/bin/warp-toggle` command.
 
-Comprueba que el daemon esté activo:
+Check that the official daemon is active:
 
 ```bash
 systemctl status warp-svc --no-pager
 ```
 
-Si no está activo, un administrador puede iniciarlo con:
+If it is not running, an administrator can start it:
 
 ```bash
 sudo systemctl enable --now warp-svc
 ```
 
-## Uso
+## Usage
 
-Abre **Cloudflare WARP (MASQUE)** desde el menú de aplicaciones, o ejecuta:
+Launch **Cloudflare WARP (MASQUE)** from the KDE application menu or run:
 
 ```bash
 ~/.local/bin/warp-toggle-masque
 ```
 
-Diagnóstico manual:
+For manual diagnostics:
 
 ```bash
 warp-cli --accept-tos status
@@ -73,18 +72,26 @@ curl -4 -fsS --connect-timeout 5 --max-time 12 \
   https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|gateway)='
 ```
 
-Desinstalación del conmutador:
+To uninstall this utility:
 
 ```bash
 ./uninstall.sh
 ```
 
-Esto no desinstala el cliente WARP ni elimina datos de configuración.
+The uninstall script removes this project's launcher and installed script. It does not uninstall the official WARP client or delete its configuration.
 
-## Seguridad y privacidad
+## Design and Scope
 
-Este proyecto no contiene claves privadas, tokens ni configuración de VPS. El instalador solo copia un script y un lanzador a la carpeta del usuario. El script realiza llamadas al cliente WARP instalado localmente y una petición HTTPS al endpoint público de diagnóstico de Cloudflare al conectar.
+The utility is intentionally a small control layer over the existing official WARP client. It does not modify DNS settings, NetworkManager profiles, firewall rules, WireGuard configuration files, or automatic-start services.
 
-## Estado
+## Privacy
 
-Versión inicial empaquetada a partir del flujo probado en Arch Linux + KDE Plasma. Probado con validación de sintaxis de Bash; no sustituye una prueba en cada distribución, versión del cliente o entorno de escritorio.
+The repository does not include private keys, access tokens, VPS credentials, or personal network configuration. When connecting, the utility makes an HTTPS request to Cloudflare's public diagnostic endpoint to verify the WARP state.
+
+## Project Status
+
+Initial utility packaged for Arch Linux and KDE Plasma. The original project notes report Bash syntax validation; behavior may vary across Linux distributions, WARP client versions, and desktop environments.
+
+## Author
+
+Developed by **Jeremy** — [GitHub](https://github.com/Jeremy-MegaJS).
